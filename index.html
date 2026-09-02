@@ -1141,22 +1141,49 @@ async function toggleCamera() {
         return;
     }
 
-    try {
-        cameraStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
-        });
-        const video = document.getElementById('cameraVideo');
-        video.srcObject = cameraStream;
-        video.play();
-        container.classList.add('active');
-        btn.classList.add('active');
-        btn.innerHTML = '⏹️ ปิดกล้อง';
+    btn.innerHTML = '⏳ กำลังเปิดกล้อง...';
+    btn.disabled = true;
 
-        // Start scanning loop
-        scanCameraFrame();
-    } catch (err) {
-        showToast('❌ ไม่สามารถเปิดกล้องได้: ' + err.message, true);
+    // Try multiple camera constraints (fallback chain)
+    const attempts = [
+        { video: true },
+        { video: { width: { ideal: 640 }, height: { ideal: 480 } } },
+        { video: { facingMode: 'environment' } }
+    ];
+
+    for (const constraints of attempts) {
+        try {
+            // Add timeout: 10 seconds max
+            cameraStream = await Promise.race([
+                navigator.mediaDevices.getUserMedia(constraints),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
+            ]);
+
+            const video = document.getElementById('cameraVideo');
+            video.srcObject = cameraStream;
+            await video.play();
+            container.classList.add('active');
+            btn.classList.remove('active');
+            btn.classList.add('active');
+            btn.disabled = false;
+            btn.innerHTML = '⏹️ ปิดกล้อง';
+
+            scanCameraFrame();
+            return; // success — stop trying
+        } catch (err) {
+            // If this attempt failed, try next one
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(t => t.stop());
+                cameraStream = null;
+            }
+            continue;
+        }
     }
+
+    // All attempts failed
+    btn.disabled = false;
+    btn.innerHTML = '📷 เปิดกล้อง Webcam เพื่อ Scan';
+    showToast('❌ ไม่สามารถเปิดกล้องได้ — ลองอนุญาตสิทธิ์กล้องในเบราว์เซอร์', true);
 }
 
 function stopCamera() {
